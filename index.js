@@ -6,7 +6,8 @@ import {
     saveSettingsDebounced,
     eventSource,
     event_types,
-    appendMediaToMessage
+    appendMediaToMessage,
+    generateRaw
 } from '../../../../script.js';
 import { regexFromString } from '../../../utils.js';
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
@@ -22,7 +23,9 @@ const INSERT_TYPE = {
     KEYWORD: 'keyword',
     AUTO: 'auto',
     REPLACE: 'replace',
-    NEW_MESSAGE: 'new_message'
+    NEW_MESSAGE: 'new_message',
+    END_OF_MESSAGE: 'end_of_message',
+    BEGINNING: 'beginning'
 };
 
 // Task trigger modes
@@ -57,7 +60,7 @@ const defaultSettings = {
     },
     
     // Insertion settings
-    insertionType: INSERT_TYPE.REPLACE,
+    insertionType: INSERT_TYPE.END_OF_MESSAGE,
     
     // Prompt engineering settings
     promptTemplate: `<IMAGE_PROMPT_TEMPLATE>
@@ -115,6 +118,10 @@ const API_SOURCE = {
 
 // Current extension settings
 let extSettings = {};
+// Task lock to prevent concurrent execution
+let isTaskRunning = false;
+// Track last processed message ID to avoid duplicates
+let lastProcessedMessageId = -1;
 
 // Initialize extension
 $(function() {
@@ -124,6 +131,9 @@ $(function() {
         
         // Add extension menu item
         addExtensionMenu();
+        
+        // Add floating button for manual trigger
+        addFloatingButton();
         
         // Add settings panel
         await setupSettingsPanel();
@@ -162,6 +172,48 @@ async function loadSettings() {
     
     logDebug('Settings loaded:', extSettings);
     extSettings.lastSave = Date.now(); // Track when this was last modified
+}
+
+// Add floating button for manual trigger
+function addFloatingButton() {
+    // Check if button already exists
+    if ($('#happy-image-floating-btn').length > 0) {
+        return;
+    }
+    
+    // Create floating button HTML
+    const buttonHtml = `
+        <div id="happy-image-floating-btn" class="happy-image-floating-btn" title="生成图像">
+            <i class="fa-solid fa-image"></i>
+        </div>
+    `;
+    
+    // Add button to body
+    $('body').append(buttonHtml);
+    
+    // Add click event
+    $('#happy-image-floating-btn').on('click', async function() {
+        if (!extSettings.enabled) {
+            showToast('插件未启用，请先启用插件', 'warning');
+            return;
+        }
+        
+        const context = getContext();
+        if (!context || !context.chat || context.chat.length === 0) {
+            showToast('没有消息可处理', 'warning');
+            return;
+        }
+        
+        const lastMessageIndex = context.chat.length - 1;
+        const lastMessage = context.chat[lastMessageIndex];
+        if (!lastMessage || !lastMessage.mes) {
+            showToast('最后一条消息没有内容', 'warning');
+            return;
+        }
+        
+        // Process the last message
+        await processMessageForImages(lastMessage, lastMessageIndex);
+    });
 }
 
 // Add extension menu items
@@ -246,65 +298,65 @@ async function loadSettingsTemplate() {
         <div class="inline-drawer-content">
             <!-- General Settings Panel -->
             <div class="happy-image-settings-section">
-                <h4>General Settings</h4>
+                <h4>常规设置</h4>
                 
                 <div class="flex-container flexGap5">
-                    <label for="happy-image-enabled">Enabled:</label>
+                    <label for="happy-image-enabled">启用插件:</label>
                     <input type="checkbox" id="happy-image-enabled" class="checkbox">
                 </div>
                 
                 <div class="flex-container flexGap5">
-                    <label for="happy-image-task-trigger">Task Trigger Mode:</label>
+                    <label for="happy-image-task-trigger">任务触发方式:</label>
                     <select id="happy-image-task-trigger" class="select">
-                        <option value="manual">Manual (Floating Button)</option>
-                        <option value="keyword">Keyword Detection</option>
-                        <option value="auto">Auto (All Messages)</option>
+                        <option value="manual">手动 (浮动按钮)</option>
+                        <option value="keyword">关键词检测</option>
+                        <option value="auto">自动 (所有消息)</option>
                     </select>
                 </div>
                 
                 <div id="keyword-settings" class="sub-settings">
                     <div class="flex-container flexGap5">
-                        <label for="happy-image-keywords">Keywords (comma separated):</label>
-                        <input type="text" id="happy-image-keywords" class="text_pole" placeholder="image, pic, art, drawing">
-                    </input>
+                        <label for="happy-image-keywords">关键词 (逗号分隔):</label>
+                        <input type="text" id="happy-image-keywords" class="text_pole" placeholder="图片, 图像, 生图, 插图">
+                    </div>
                 </div>
             </div>
             
             <!-- API Configuration Panel -->
             <div class="happy-image-settings-section">
-                <h4>API2 Configuration (Prompt Generation)</h4>
+                <h4>API2 配置 (提示词生成)</h4>
                 
                 <div class="flex-container flexGap5">
-                    <label for="happy-image-api2-source">API Source:</label>
+                    <label for="happy-image-api2-source">API 源:</label>
                     <select id="happy-image-api2-source" class="select">
-                        <option value="tavern">Use Main Tavern API</option>
-                        <option value="preset">Use Connection Preset</option>
-                        <option value="custom">Custom Configuration</option>
+                        <option value="tavern">使用当前 Tavern API</option>
+                        <option value="preset">使用连接预设</option>
+                        <option value="custom">自定义配置</option>
                     </select>
                 </div>
                 
                 <div id="api2-preset-config" class="sub-settings">
                     <div class="flex-container flexGap5">
-                        <label for="happy-image-api2-preset">Select Preset:</label>
+                        <label for="happy-image-api2-preset">选择预设:</label>
                         <select id="happy-image-api2-preset" class="select">
-                            <option value="">Select a preset...</option>
+                            <option value="">选择一个预设...</option>
                         </select>
                     </div>
                 </div>
                 
                 <div id="api2-custom-config" class="sub-settings">
                     <div class="flex-container flexGap5">
-                        <label for="happy-image-api2-api-url">API URL:</label>
+                        <label for="happy-image-api2-api-url">API 地址:</label>
                         <input type="text" id="happy-image-api2-api-url" class="text_pole" placeholder="https://api.openai.com/v1/chat/completions">
                     </div>
                     
                     <div class="flex-container flexGap5">
-                        <label for="happy-image-api2-api-key">API Key:</label>
-                        <input type="password" id="happy-image-api2-api-key" class="text_pole" placeholder="Enter your API key">
+                        <label for="happy-image-api2-api-key">API 密钥:</label>
+                        <input type="password" id="happy-image-api2-api-key" class="text_pole" placeholder="输入您的 API 密钥">
                     </div>
                     
                     <div class="flex-container flexGap5">
-                        <label for="happy-image-api2-model">Model:</label>
+                        <label for="happy-image-api2-model">模型:</label>
                         <input type="text" id="happy-image-api2-model" class="text_pole" placeholder="gpt-4o">
                     </div>
                 </div>
@@ -312,46 +364,45 @@ async function loadSettingsTemplate() {
             
             <!-- Prompt Template Panel -->
             <div class="happy-image-settings-section">
-                <h4>Prompt Template (For Prompt Generation)</h4>
+                <h4>提示词模板 (用于提示词生成)</h4>
                 
                 <div class="flex-container flexGap5">
-                    <label for="happy-image-prompt-template">Prompt Template:</label>
+                    <label for="happy-image-prompt-template">提示词模板:</label>
                     <textarea id="happy-image-prompt-template" class="text_pole textarea_compact" rows="10"></textarea>
                 </div>
             </div>
             
             <!-- Insertion Settings Panel -->
             <div class="happy-image-settings-section">
-                <h4>Insertion Settings</h4>
+                <h4>插入设置</h4>
                 
                 <div class="flex-container flexGap5">
-                    <label for="happy-image-insertion-type">Insertion Type:</label>
+                    <label for="happy-image-insertion-type">插入类型:</label>
                     <select id="happy-image-insertion-type" class="select">
-                        <option value="replace">Replace Keyword/Trigger</option>
-                        <option value="end_of_message">End of Message</option>
-                        <option value="new_message">New Message</option>
-                        <option value="beginning">Beginning of Message</option>
+                        <option value="end_of_message">消息末尾</option>
+                        <option value="new_message">新消息</option>
+                        <option value="beginning">消息开头</option>
                     </select>
                 </div>
             </div>
             
             <!-- Image Saving Panel -->
             <div class="happy-image-settings-section">
-                <h4>Image Saving Settings</h4>
+                <h4>图像保存设置</h4>
                 
                 <div class="flex-container flexGap5">
-                    <label for="happy-image-save-enabled">Enable Saving:</label>
+                    <label for="happy-image-save-enabled">启用保存:</label>
                     <input type="checkbox" id="happy-image-save-enabled" class="checkbox">
                 </div>
                 
                 <div id="save-path-settings" class="sub-settings">
                     <div class="flex-container flexGap5">
-                        <label for="happy-image-save-path">Save Path:</label>
+                        <label for="happy-image-save-path">保存路径:</label>
                         <input type="text" id="happy-image-save-path" class="text_pole" placeholder="./user_images">
                     </div>
                     
                     <div class="flex-container flexGap5">
-                        <label for="happy-image-save-by-character">Organize by Character Name:</label>
+                        <label for="happy-image-save-by-character">按角色名组织文件夹:</label>
                         <input type="checkbox" id="happy-image-save-by-character" class="checkbox">
                     </div>
                 </div>
@@ -359,34 +410,34 @@ async function loadSettingsTemplate() {
             
             <!-- Debugging Panel -->
             <div class="happy-image-settings-section">
-                <h4>Debug & Logging</h4>
+                <h4>调试与日志</h4>
                 
                 <div class="flex-container flexGap5">
-                    <label for="happy-image-debug-enabled">Enable Debug:</label>
+                    <label for="happy-image-debug-enabled">启用调试:</label>
                     <input type="checkbox" id="happy-image-debug-enabled" class="checkbox">
                 </div>
                 
                 <div class="flex-container flexGap5">
-                    <label for="happy-image-debug-level">Log Level:</label>
+                    <label for="happy-image-debug-level">日志等级:</label>
                     <select id="happy-image-debug-level" class="select">
-                        <option value="debug">Debug</option>
-                        <option value="info" selected>Info</option>
-                        <option value="warn">Warn</option>
-                        <option value="error">Error</option>
+                        <option value="debug">调试</option>
+                        <option value="info" selected>信息</option>
+                        <option value="warn">警告</option>
+                        <option value="error">错误</option>
                     </select>
                 </div>
                 
                 <div class="flex-container flexGap5">
-                    <label for="happy-image-show-toasts">Show Toast Notifications:</label>
+                    <label for="happy-image-show-toasts">显示弹窗通知:</label>
                     <input type="checkbox" id="happy-image-show-toasts" class="checkbox">
                 </div>
             </div>
             
             <!-- Control Buttons -->
             <div class="flex-container flexGap5">
-                <button id="happy-image-save-settings" class="menu_button">Save Settings</button>
-                <button id="happy-image-test-api" class="menu_button">Test APIs</button>
-                <button id="happy-image-reset-to-default" class="menu_button">Reset to Default</button>
+                <button id="happy-image-save-settings" class="menu_button">保存设置</button>
+                <button id="happy-image-test-api" class="menu_button">测试APIs</button>
+                <button id="happy-image-reset-to-default" class="menu_button">重置为默认值</button>
             </div>
         </div>
     </div>`;
@@ -602,7 +653,7 @@ function logError(message, ...args) {
 
 // Create a toast notification if enabled
 function showToast(message, type = 'info') {
-    if (!extSettings.debug.showToasts) return;
+    if (!extSettings.debug || !extSettings.debug.showToasts) return;
     
     // Use the available toast notification system in tavern
     if (typeof toastr !== 'undefined') {
@@ -625,65 +676,133 @@ function showToast(message, type = 'info') {
     }
 }
 
-// Test API connections
-async function testApiConnections() {
-    try {
-        // Show testing status
-        showToast('Testing API connections...', 'info');
-        
-        // Test API2 (prompt generation)
-        let api2Ok = false;
-        if (extSettings.api2Config.source === 'custom') {
-            // Try to connect to custom API
-            api2Ok = await testCustomApiConnection(
-                extSettings.api2Config.customConfig.apiUrl,
-                extSettings.api2Config.customConfig.apiKey,
-                extSettings.api2Config.customConfig.model
-            );
-        } else if (extSettings.api2Config.source === 'preset') {
-            // For preset, we need to validate differently
-            api2Ok = extSettings.api2Config.selectedPreset !== null;
-        } else { // tavern
-            // Use Tavern's available APIs
-            api2Ok = true; // Assume it will work if tavern is configured
+// Validate API configuration is complete
+function validateApiConfigComplete() {
+    if (extSettings.api2Config.source === API_SOURCE.CUSTOM) {
+        const { apiUrl, apiKey, model } = extSettings.api2Config.customConfig;
+        if (!apiUrl || !apiKey || !model) {
+            return { valid: false, message: '自定义API配置不完整，请填写API地址、API密钥和模型' };
         }
-        
-        // Show results
-        if (api2Ok) {
-            showToast('API connection tests passed!', 'success');
-        } else {
-            showToast('API connection failed, please check your configuration.', 'error');
+        return { valid: true };
+    } else if (extSettings.api2Config.source === API_SOURCE.PRESET) {
+        if (!extSettings.api2Config.selectedPreset) {
+            return { valid: false, message: '请选择一个API预设' };
         }
-    } catch (e) {
-        logError('API Test Error:', e);
-        showToast(`API test error: ${e.message}`, 'error');
+        return { valid: true };
+    } else { // tavern
+        // Check if Tavern API is available
+        const hasTavernApi = typeof window.generate !== 'undefined' || 
+                            typeof window.generateRaw !== 'undefined' ||
+                            (typeof window.TavernHelper !== 'undefined' && window.TavernHelper.generate);
+        if (!hasTavernApi) {
+            return { valid: false, message: '酒馆主API未配置，请先在酒馆中配置主API' };
+        }
+        return { valid: true };
     }
 }
 
-// Test custom API connection
-async function testCustomApiConnection(url, key, model) {
-    if (!url || !key) {
-        return false;
-    }
-    
-    // Check if the URL seems valid
+// Test API connections with actual API call
+async function testApiConnections() {
     try {
-        new URL(url);
+        // First, validate configuration completeness
+        const configValidation = validateApiConfigComplete();
+        if (!configValidation.valid) {
+            showToast(configValidation.message, 'warning');
+            return;
+        }
+
+        // Show testing status
+        showToast('正在发送测试请求...', 'info');
+        
+        // Create a simple test prompt
+        const testPrompt = `<IMAGE_PROMPT_TEMPLATE>
+这是一个API测试请求。请返回以下格式的JSON:
+
+\`\`\`json
+{
+  "tasks": [
+    {
+      "english_prompt": "test prompt",
+      "chinese_prompt": "测试提示词",
+      "position": "end_of_message"
+    }
+  ]
+}
+\`\`\`
+
+只返回JSON，不要包含其他内容。
+</IMAGE_PROMPT_TEMPLATE>`;
+        
+        // Get custom API config if using custom source
+        let customApi = null;
+        let result;
+        
+        if (extSettings.api2Config.source === API_SOURCE.CUSTOM) {
+            customApi = extSettings.api2Config.customConfig;
+            logInfo('使用自定义API配置进行测试');
+            
+            result = await window.TavernHelper?.generate?.({
+                generate: testPrompt,
+                custom_api: {
+                    apiurl: customApi.apiUrl,
+                    key: customApi.apiKey,
+                    model: customApi.model,
+                    source: customApi.source
+                }
+            }) || await generateRaw({
+                user_input: testPrompt,
+                custom_api: {
+                    apiurl: customApi.apiUrl,
+                    key: customApi.apiKey,
+                    model: customApi.model,
+                    source: customApi.source
+                }
+            });
+        } else if (extSettings.api2Config.source === API_SOURCE.TAVERN) {
+            logInfo('使用Tavern当前API配置进行测试');
+            
+            result = await window.TavernHelper?.generate?.({
+                generate: testPrompt
+            }) || await generateRaw({
+                user_input: testPrompt
+            });
+        } else { // preset
+            logInfo('使用预设配置进行测试');
+            // For preset, we'll use Tavern's default for now
+            result = await window.TavernHelper?.generate?.({
+                generate: testPrompt
+            }) || await generateRaw({
+                user_input: testPrompt
+            });
+        }
+        
+        logInfo('API测试调用完成，原始结果:', result);
+        
+        // Try to parse the result to verify it's valid
+        const parsedResult = parseApiResult(result);
+        
+        if (!parsedResult || !parsedResult.tasks || parsedResult.tasks.length === 0) {
+            throw new Error('API返回结果格式不正确');
+        }
+        
+        // If we got here, the test passed!
+        showToast('✓ API配置生效！测试成功通过', 'success');
+        logInfo('API连接测试成功');
+        
     } catch (e) {
-        logError('Invalid API URL:', url);
+        logError('API测试错误:', e);
+        showToast(`✗ API测试失败: ${e.message}`, 'error');
+    }
+}
+
+// Check if we need to validate before generating prompts
+function validateBeforeGeneration() {
+    const configValidation = validateApiConfigComplete();
+    if (!configValidation.valid) {
+        showToast(configValidation.message, 'warning');
         return false;
     }
-    
-    // Make a simple test request
-    try {
-        // Use the window.TavernHelper or fetch to test the API
-        // For now, just validate the configuration
-        // For a real test, we'd make an API call, but we might not want to consume API quota here
-        return true;
-    } catch (e) {
-        logError('Custom API test failed:', e);
-        return false;
-    }
+    return true;
 }
 
 // Register event listeners for tavern events
@@ -711,6 +830,8 @@ function registerEventListeners() {
     
     eventSource.on(event_types.CHAT_CHANGED, async function() {
         logDebug('Chat changed, reloading settings');
+        isTaskRunning = false;
+        lastProcessedMessageId = -1;
         await loadSettings();
     });
     
@@ -737,13 +858,14 @@ async function handleAutoImageGeneration() {
         }
         
         // Get the last message
-        const message = context.chat[context.chat.length - 1];
+        const messageIndex = context.chat.length - 1;
+        const message = context.chat[messageIndex];
         if (!message || !message.mes) {
             return;
         }
         
         // Generate images for this message
-        await processMessageForImages(message);
+        await processMessageForImages(message, messageIndex);
     } catch (e) {
         logError('Auto image generation error:', e);
         showToast(`Error during auto image generation: ${e.message}`, 'error');
@@ -771,7 +893,7 @@ async function handleKeywordBasedImageGeneration(mesId) {
         
         if (containsKeyword) {
             // Generate images for this message
-            await processMessageForImages(message);
+            await processMessageForImages(message, mesId);
         }
     } catch (e) {
         logError('Keyword-based image generation error:', e);
@@ -780,7 +902,22 @@ async function handleKeywordBasedImageGeneration(mesId) {
 }
 
 // Process a message to generate images based on its content
-async function processMessageForImages(message) {
+async function processMessageForImages(message, messageIndex) {
+    // Check if a task is already running
+    if (isTaskRunning) {
+        logInfo('已有任务正在执行，跳过本次请求');
+        return;
+    }
+    
+    // Check if we've already processed this message
+    if (messageIndex !== undefined && messageIndex === lastProcessedMessageId) {
+        logInfo(`消息 ${messageIndex} 已处理过，跳过`);
+        return;
+    }
+    
+    // Acquire lock
+    isTaskRunning = true;
+    
     try {
         logInfo('开始处理消息以生成图像', message);
         showToast('开始处理图像生成...', 'info');
@@ -792,6 +929,10 @@ async function processMessageForImages(message) {
             logInfo('消息未生成图像提示词:');
             logInfo('消息内容: ' + message.mes.substring(0, 100) + '...');
             showToast('未找到需要生成的图像提示词', 'warning');
+            // Update last processed message ID even if no prompts were generated
+            if (messageIndex !== undefined) {
+                lastProcessedMessageId = messageIndex;
+            }
             return;
         }
         
@@ -799,20 +940,35 @@ async function processMessageForImages(message) {
         logInfo('生成的图像提示词任务详情:', promptTasks);
         
         // Then, for each prompt, generate an actual image using API3 (Tavern's SD)
-        for (const task of promptTasks) {
-            logInfo(`处理提示词任务: ${task.english_prompt.substring(0, 50)}...`);
+        for (let i = 0; i < promptTasks.length; i++) {
+            const task = promptTasks[i];
+            logInfo(`处理提示词任务 ${i + 1}/${promptTasks.length}: ${task.english_prompt.substring(0, 50)}...`);
+            showToast(`正在生成第 ${i + 1}/${promptTasks.length} 张图像...`, 'info');
             await generateImageFromPrompt(task);
         }
         showToast(`完成${promptTasks.length}个图像的生成请求`, 'success');
+        
+        // Update last processed message ID
+        if (messageIndex !== undefined) {
+            lastProcessedMessageId = messageIndex;
+        }
     } catch (e) {
         logError('处理消息生成图像时出错:', e);
         showToast(`处理图像生成时出错: ${e.message}`, 'error');
+    } finally {
+        // Release lock
+        isTaskRunning = false;
     }
 }
 
 // Generate image prompts using API2 based on message content
 async function generateImagePrompts(messageContent) {
     try {
+        // Validate configuration before proceeding
+        if (!validateBeforeGeneration()) {
+            return [];
+        }
+        
         logInfo('开始使用API2从内容生成提示词:', messageContent.substring(0, 100) + '...');
         showToast('正在生成图像提示词...', 'info');
         
@@ -1010,12 +1166,12 @@ async function insertImageIntoMessage(imageData) {
         
         // Depending on insertion type, handle differently
         switch (extSettings.insertionType) {
-            case INSERT_TYPE.REPLACE:
-                // Replace the message content with the image and original content
+            case INSERT_TYPE.BEGINNING:
+                // Add image at beginning of last message
                 if (imageData.chineseCommentary) {
-                    message.mes = message.mes + `<br><img src="${imageUrl}" alt="${imageData.chineseCommentary}"><br><em>${imageData.chineseCommentary}</em>`;
+                    message.mes = `<br><img src="${imageUrl}" alt="${imageData.chineseCommentary}"><br><em>${imageData.chineseCommentary}</em>` + message.mes;
                 } else {
-                    message.mes = message.mes + `<br><img src="${imageUrl}">`;
+                    message.mes = `<br><img src="${imageUrl}">` + message.mes;
                 }
                 break;
                 
@@ -1038,20 +1194,8 @@ async function insertImageIntoMessage(imageData) {
                 break;
                 
             case INSERT_TYPE.END_OF_MESSAGE:
-                // Add image at end of last message
-                if (imageData.chineseCommentary) {
-                    message.mes = message.mes + `<br><img src="${imageUrl}" alt="${imageData.chineseCommentary}"><br><em>${imageData.chineseCommentary}</em>`;
-                } else {
-                    message.mes = message.mes + `<br><img src="${imageUrl}">`;
-                }
-                break;
-                
-            case INSERT_TYPE.MANUAL:
-                // This would be handled by the manual button (not applicable here)
-                break;
-                
             default:
-                // Default action - same as end of message
+                // Add image at end of last message
                 if (imageData.chineseCommentary) {
                     message.mes = message.mes + `<br><img src="${imageUrl}" alt="${imageData.chineseCommentary}"><br><em>${imageData.chineseCommentary}</em>`;
                 } else {
