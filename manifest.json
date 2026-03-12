@@ -1,0 +1,12 @@
+{
+    "display_name": "Happy-Image",
+    "loading_order": 500,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "aiaiqi859-cyber",
+    "version": "1.0.0",
+    "homePage": "https://github.com/aiaiqi859-cyber/Happy-Image",
+    "description": "A smart image generation plugin with AI-powered prompt creation and multiple insertion options"
+}

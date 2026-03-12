@@ -1,0 +1,131 @@
+<!-- Legacy file for potential use with Tavern's older extension system, though the settings are implemented directly in index.js -->
+<div id="happy-image-settings-panel" style="display: none;">
+    <h3>Happy-Image Settings</h3>
+    
+    <div class="happy-image-settings-section">
+        <h4>General Settings</h4>
+        
+        <div class="flex-container flexGap5">
+            <label for="happy-image-enabled">Enable Plugin:</label>
+            <input type="checkbox" id="happy-image-enabled" class="checkbox">
+        </div>
+        
+        <div class="flex-container flexGap5">
+            <label for="happy-image-task-trigger">Task Trigger Mode:</label>
+            <select id="happy-image-task-trigger" class="select">
+                <option value="manual">Manual (Floating Button)</option>
+                <option value="keyword">Keyword Detection</option>
+                <option value="auto">Auto (All Messages)</option>
+            </select>
+        </div>
+        
+        <div id="keyword-settings" class="sub-settings">
+            <div class="flex-container flexGap5">
+                <label for="happy-image-keywords">Keywords (comma separated):</label>
+                <input type="text" id="happy-image-keywords" class="text_pole" placeholder="image, pic, art, drawing">
+            </div>
+        </div>
+    </div>
+    
+    <div class="happy-image-settings-section">
+        <h4>API2 Configuration (Prompt Generation)</h4>
+        
+        <div class="flex-container flexGap5">
+            <label for="happy-image-api2-source">API Source:</label>
+            <select id="happy-image-api2-source" class="select">
+                <option value="tavern">Use Main Tavern API</option>
+                <option value="preset">Use Connection Preset</option>
+                <option value="custom">Custom Configuration</option>
+            </select>
+        </div>
+        
+        <div id="api2-preset-config" class="sub-settings">
+            <div class="flex-container flexGap5">
+                <label for="happy-image-api2-preset">Select Preset:</label>
+                <select id="happy-image-api2-preset" class="select">
+                    <option value="">Select a preset...</option>
+                </select>
+            </div>
+        </div>
+        
+        <div id="api2-custom-config" class="sub-settings">
+            <div class="flex-container flexGap5">
+                <label for="happy-image-api2-api-url">API URL:</label>
+                <input type="text" id="happy-image-api2-api-url" class="text_pole" placeholder="https://api.openai.com/v1/chat/completions">
+            </div>
+            
+            <div class="flex-container flexGap5">
+                <label for="happy-image-api2-api-key">API Key:</label>
+                <input type="password" id="happy-image-api2-api-key" class="text_pole" placeholder="Enter your API key">
+            </div>
+            
+            <div class="flex-container flexGap5">
+                <label for="happy-image-api2-model">Model:</label>
+                <input type="text" id="happy-image-api2-model" class="text_pole" placeholder="gpt-4o">
+            </div>
+        </div>
+    </div>
+    
+    <div class="happy-image-settings-section">
+        <h4>Prompt Template (For Prompt Generation)</h4>
+        
+        <div class="flex-container flexGap5">
+            <label for="happy-image-prompt-template">Prompt Template:</label>
+            <textarea id="happy-image-prompt-template" class="text_pole textarea_compact" rows="10"></textarea>
+        </div>
+    </div>
+    
+    <div class="happy-image-settings-section">
+        <h4>Insertion Settings</h4>
+        
+        <div class="flex-container flexGap5">
+            <label for="happy-image-insertion-type">Insertion Type:</label>
+            <select id="happy-image-insertion-type" class="select">
+                <option value="end_of_message">End of Message</option>
+                <option value="replace">Replace Trigger Text</option>
+                <option value="new_message">New Message</option>
+                <option value="beginning">Beginning of Message</option>
+            </select>
+        </div>
+    </div>
+    
+    <div class="happy-image-settings-section">
+        <h4>Image Saving Settings</h4>
+        
+        <div class="flex-container flexGap5">
+            <label for="happy-image-save-enabled">Enable Saving:</label>
+            <input type="checkbox" id="happy-image-save-enabled" class="checkbox">
+        </div>
+        
+        <div id="save-path-settings" class="sub-settings">
+            <div class="flex-container flexGap5">
+                <label for="happy-image-save-path">Save Path:</label>
+                <input type="text" id="happy-image-save-path" class="text_pole" placeholder="./user_images">
+            </div>
+        </div>
+    </div>
+    
+    <div class="happy-image-settings-section">
+        <h4>Debug & Logging</h4>
+        
+        <div class="flex-container flexGap5">
+            <label for="happy-image-debug-enabled">Enable Debug:</label>
+            <input type="checkbox" id="happy-image-debug-enabled" class="checkbox">
+        </div>
+        
+        <div class="flex-container flexGap5">
+            <label for="happy-image-debug-level">Log Level:</label>
+            <select id="happy-image-debug-level" class="select">
+                <option value="debug">Debug</option>
+                <option value="info" selected>Info</option>
+                <option value="warn">Warn</option>
+                <option value="error">Error</option>
+            </select>
+        </div>
+    </div>
+    
+    <div class="flex-container flexGap5">
+        <button id="happy-image-save-settings" class="menu_button">Save Settings</button>
+        <button id="happy-image-test-api" class="menu_button">Test APIs</button>
+    </div>
+</div>
