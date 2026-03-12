@@ -39,13 +39,13 @@ const TASK_TRIGGER = {
 const defaultSettings = {
     // General Settings
     enabled: true,
-    taskTrigger: TASK_TRIGGER.MANUAL, // Manual, keyword, auto
-    keywordList: ['image', 'pic'], // Keywords that trigger image generation
+    taskTrigger: TASK_TRIGGER.MANUAL,
+    keywordList: ['image', 'pic'],
     
     // API Configuration for API2 (for generating prompts)
     api2Config: {
         source: 'tavern', // 'tavern', 'preset', 'custom'
-        selectedPreset: null, // For 'preset' source
+        selectedPreset: null,
         customConfig: {
             apiUrl: '',
             apiKey: '',
@@ -85,7 +85,7 @@ const defaultSettings = {
     {
       "english_prompt": "这里放英文提示词",
       "chinese_prompt": "这里放中文提示词",
-      "position": "end_of_message" // 位置选项: after_paragraph_1, after_paragraph_2, end_of_message, beginning_of_message
+      "position": "end_of_message"
     }
   ]
 }
@@ -96,7 +96,7 @@ const defaultSettings = {
     
     // Image saving settings
     saveImages: {
-        enabled: false, // Due to permission issues, might not work in all browsers
+        enabled: false,
         saveToPath: './user_images',
         byCharacterName: true
     },
@@ -104,63 +104,46 @@ const defaultSettings = {
     // Debugging settings
     debug: {
         enabled: true,
-        logLevel: 'info', // debug, info, warn, error
+        logLevel: 'info',
         showToasts: true
     }
 };
 
 // API Source Types
 const API_SOURCE = {
-    TAVERN: 'tavern', // Use current Tavern API
-    PRESET: 'preset', // Use predefined preset
-    CUSTOM: 'custom'  // Custom API configuration
+    TAVERN: 'tavern',
+    PRESET: 'preset',
+    CUSTOM: 'custom'
 };
 
 // Current extension settings
 let extSettings = {};
-// Task lock to prevent concurrent execution
 let isTaskRunning = false;
-// Track last processed message ID to avoid duplicates
 let lastProcessedMessageId = -1;
 
 // Initialize extension
 $(function() {
     (async function() {
-        // Load settings
         await loadSettings();
-        
-        // Add extension menu item
         addExtensionMenu();
-        
-        // Add floating button for manual trigger
         addFloatingButton();
-        
-        // Add settings panel
         await setupSettingsPanel();
-        
-        // Register event listeners
         registerEventListeners();
-        
-        // Log extension loaded
         logDebug('Happy-Image extension loaded successfully');
     })();
 });
 
 // Load and initialize settings
 async function loadSettings() {
-    // Initialize the extension settings object
     extSettings = extension_settings[extensionName] = extension_settings[extensionName] || {};
     
-    // Check if settings exist and if not, use defaults
     if (Object.keys(extSettings).length === 0) {
         Object.assign(extSettings, defaultSettings);
     } else {
-        // For existing configs, ensure new fields are added
         Object.entries(defaultSettings).forEach(([key, value]) => {
             if (extSettings[key] === undefined) {
                 extSettings[key] = deepClone(value);
             } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-                // For objects, merge default properties if not present
                 Object.entries(value).forEach(([subKey, subValue]) => {
                     if (extSettings[key][subKey] === undefined) {
                         extSettings[key][subKey] = deepClone(subValue);
@@ -171,27 +154,111 @@ async function loadSettings() {
     }
     
     logDebug('Settings loaded:', extSettings);
-    extSettings.lastSave = Date.now(); // Track when this was last modified
+    extSettings.lastSave = Date.now();
+}
+
+// Get Tavern presets from global context
+function getTavernPresets() {
+    try {
+        const context = getContext();
+        
+        // Try multiple ways to get presets
+        let presets = [];
+        
+        // Try 1: Look in extension settings for common preset storage
+        if (context?.extensionSettings) {
+            // Look for common preset extensions
+            const commonPresetExts = ['api_config', 'api_presets', 'presets'];
+            for (const extName of commonPresetExts) {
+                if (context.extensionSettings[extName]) {
+                    const extSettings = context.extensionSettings[extName];
+                    if (extSettings.presets && Array.isArray(extSettings.presets)) {
+                        presets = extSettings.presets;
+                        break;
+                    }
+                    if (extSettings.llmPresets && Array.isArray(extSettings.llmPresets)) {
+                        presets = extSettings.llmPresets;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Try 2: Look for window global presets
+        if (presets.length === 0 && window.TavernAI) {
+            if (window.TavernAI.presets) {
+                presets = window.TavernAI.presets;
+            }
+        }
+        
+        // Try 3: Look in Engram settings format (for reference)
+        if (presets.length === 0 && context?.extensionSettings?.engram?.apiSettings?.llmPresets) {
+            presets = context.extensionSettings.engram.apiSettings.llmPresets;
+        }
+        
+        // If no presets found, try to create some from existing config
+        if (presets.length === 0) {
+            // Check if we can access main API config
+            const hasTavernApi = checkTavernApiAvailable();
+            if (hasTavernApi) {
+                presets = [{
+                    id: 'default_tavern',
+                    name: '酒馆主 API (默认)',
+                    source: 'tavern'
+                }];
+            }
+        }
+        
+        logDebug('Found presets:', presets);
+        return presets;
+    } catch (e) {
+        logError('Error getting presets:', e);
+        return [];
+    }
+}
+
+// Check if Tavern API is available
+function checkTavernApiAvailable() {
+    try {
+        // Check for TavernHelper - this is the main one to use
+        if (typeof window.TavernHelper !== 'undefined' && window.TavernHelper) {
+            if (window.TavernHelper.generate || window.TavernHelper.generateRaw) {
+                return true;
+            }
+        }
+        
+        // Fallback checks
+        if (typeof window.generate !== 'undefined' || typeof window.generateRaw !== 'undefined') {
+            return true;
+        }
+        
+        // Check context
+        const context = getContext();
+        if (context && context.api) {
+            return true;
+        }
+        
+        return false;
+    } catch (e) {
+        logError('Error checking Tavern API:', e);
+        return false;
+    }
 }
 
 // Add floating button for manual trigger
 function addFloatingButton() {
-    // Check if button already exists
     if ($('#happy-image-floating-btn').length > 0) {
         return;
     }
     
-    // Create floating button HTML
     const buttonHtml = `
         <div id="happy-image-floating-btn" class="happy-image-floating-btn" title="生成图像">
             <i class="fa-solid fa-image"></i>
         </div>
     `;
     
-    // Add button to body
     $('body').append(buttonHtml);
     
-    // Add click event
     $('#happy-image-floating-btn').on('click', async function() {
         if (!extSettings.enabled) {
             showToast('插件未启用，请先启用插件', 'warning');
@@ -211,7 +278,6 @@ function addFloatingButton() {
             return;
         }
         
-        // Process the last message
         await processMessageForImages(lastMessage, lastMessageIndex);
     });
 }
@@ -223,7 +289,6 @@ function addExtensionMenu() {
         return;
     }
 
-    // Check if menu item already exists (for reload prevention)
     if ($(`.${extensionName}`).length) return;
 
     const menuHtml = `
@@ -235,26 +300,21 @@ function addExtensionMenu() {
     const $menuItem = $(menuHtml);
     $('#extensionsMenu').append($menuItem);
     
-    // Add click event for the menu item
     $menuItem.on('click', function() {
         const settingsContainerId = `${extensionName}-settings-container`;
         const $container = $(`#${settingsContainerId}`);
         
-        // Close drawer if it's open
         if (!$('#rm_extensions_block').hasClass('closedDrawer')) {
             $('#extensions-settings-button .drawer-toggle').click();
         }
         
-        // Open it again in 100ms
         setTimeout(() => {
             $('#extensions-settings-button .drawer-toggle').click();
             
-            // Scroll to the settings container
             setTimeout(() => {
                 if ($container.length) {
                     $container[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
                     
-                    // If it's collapsed, expand it
                     const $drawerHeader = $container.find('.inline-drawer-header');
                     if ($container.find('.inline-drawer-content').is(':not(:visible)')) {
                         $drawerHeader.click();
@@ -267,10 +327,8 @@ function addExtensionMenu() {
 
 // Setup settings panel
 async function setupSettingsPanel() {
-    // Get settings HTML
     const settingsHtml = await loadSettingsTemplate();
     
-    // Create and add settings container if it doesn't exist
     const containerId = `${extensionName}-settings-container`;
     if ($(`#${containerId}`).length === 0) {
         const containerHtml = `<div id="${containerId}" class="extension_container"></div>`;
@@ -280,10 +338,7 @@ async function setupSettingsPanel() {
     const $container = $(`#${containerId}`);
     $container.empty().append(settingsHtml);
     
-    // Initialize UI elements with current settings
     initializeSettingsUI();
-    
-    // Add event listeners to UI elements
     attachSettingsEventListeners();
 }
 
@@ -296,7 +351,6 @@ async function loadSettingsTemplate() {
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
-            <!-- General Settings Panel -->
             <div class="happy-image-settings-section">
                 <h4>常规设置</h4>
                 
@@ -322,7 +376,6 @@ async function loadSettingsTemplate() {
                 </div>
             </div>
             
-            <!-- API Configuration Panel -->
             <div class="happy-image-settings-section">
                 <h4>API2 配置 (提示词生成)</h4>
                 
@@ -339,7 +392,7 @@ async function loadSettingsTemplate() {
                     <div class="flex-container flexGap5">
                         <label for="happy-image-api2-preset">选择预设:</label>
                         <select id="happy-image-api2-preset" class="select">
-                            <option value="">选择一个预设...</option>
+                            <option value="">加载预设中...</option>
                         </select>
                     </div>
                 </div>
@@ -362,7 +415,6 @@ async function loadSettingsTemplate() {
                 </div>
             </div>
             
-            <!-- Prompt Template Panel -->
             <div class="happy-image-settings-section">
                 <h4>提示词模板 (用于提示词生成)</h4>
                 
@@ -372,7 +424,6 @@ async function loadSettingsTemplate() {
                 </div>
             </div>
             
-            <!-- Insertion Settings Panel -->
             <div class="happy-image-settings-section">
                 <h4>插入设置</h4>
                 
@@ -386,7 +437,6 @@ async function loadSettingsTemplate() {
                 </div>
             </div>
             
-            <!-- Image Saving Panel -->
             <div class="happy-image-settings-section">
                 <h4>图像保存设置</h4>
                 
@@ -408,7 +458,6 @@ async function loadSettingsTemplate() {
                 </div>
             </div>
             
-            <!-- Debugging Panel -->
             <div class="happy-image-settings-section">
                 <h4>调试与日志</h4>
                 
@@ -433,7 +482,6 @@ async function loadSettingsTemplate() {
                 </div>
             </div>
             
-            <!-- Control Buttons -->
             <div class="flex-container flexGap5">
                 <button id="happy-image-save-settings" class="menu_button">保存设置</button>
                 <button id="happy-image-test-api" class="menu_button">测试APIs</button>
@@ -445,44 +493,64 @@ async function loadSettingsTemplate() {
 
 // Initialize UI elements with current settings
 function initializeSettingsUI() {
-    // General settings
     $('#happy-image-enabled').prop('checked', extSettings.enabled);
     $('#happy-image-task-trigger').val(extSettings.taskTrigger);
     $('#happy-image-keywords').val(extSettings.keywordList.join(', '));
     
-    // API configs
     $('#happy-image-api2-source').val(extSettings.api2Config.source);
     $('#happy-image-api2-preset').val(extSettings.api2Config.selectedPreset);
     $('#happy-image-api2-api-url').val(extSettings.api2Config.customConfig.apiUrl);
     $('#happy-image-api2-api-key').val(extSettings.api2Config.customConfig.apiKey);
     $('#happy-image-api2-model').val(extSettings.api2Config.customConfig.model);
     
-    // Toggle UI elements based on selected API source
     toggleApiElements();
+    loadPresetsIntoDropdown();
     
-    // Prompt template
     $('#happy-image-prompt-template').val(extSettings.promptTemplate);
-    
-    // Insertion settings
     $('#happy-image-insertion-type').val(extSettings.insertionType);
     
-    // Image saving
     $('#happy-image-save-enabled').prop('checked', extSettings.saveImages.enabled);
     $('#happy-image-save-path').val(extSettings.saveImages.saveToPath);
     $('#happy-image-save-by-character').prop('checked', extSettings.saveImages.byCharacterName);
     
-    // Debug settings
     $('#happy-image-debug-enabled').prop('checked', extSettings.debug.enabled);
     $('#happy-image-debug-level').val(extSettings.debug.logLevel);
     $('#happy-image-show-toasts').prop('checked', extSettings.debug.showToasts);
     
-    // Toggle sub-settings visibility
     toggleSubSettings();
+}
+
+// Load presets into dropdown
+function loadPresetsIntoDropdown() {
+    const $presetSelect = $('#happy-image-api2-preset');
+    $presetSelect.empty();
+    
+    const presets = getTavernPresets();
+    
+    if (presets.length === 0) {
+        $presetSelect.append(`<option value="">未找到预设</option>`);
+        logDebug('No presets found');
+        return;
+    }
+    
+    $presetSelect.append(`<option value="">选择一个预设...</option>`);
+    
+    presets.forEach(preset => {
+        const presetId = preset.id || preset.name;
+        const presetName = preset.name || preset.id || '未知预设';
+        $presetSelect.append(`<option value="${presetId}">${presetName}</option>`);
+    });
+    
+    // Restore selected preset if it exists
+    if (extSettings.api2Config.selectedPreset) {
+        $presetSelect.val(extSettings.api2Config.selectedPreset);
+    }
+    
+    logDebug(`Loaded ${presets.length} presets`);
 }
 
 // Attach event listeners to UI elements
 function attachSettingsEventListeners() {
-    // General settings listeners
     $('#happy-image-enabled').on('change', function() {
         extSettings.enabled = $(this).is(':checked');
     });
@@ -497,7 +565,6 @@ function attachSettingsEventListeners() {
         extSettings.keywordList = keywords;
     });
     
-    // API2 source listener
     $('#happy-image-api2-source').on('change', function() {
         extSettings.api2Config.source = $(this).val();
         toggleApiElements();
@@ -519,17 +586,14 @@ function attachSettingsEventListeners() {
         extSettings.api2Config.customConfig.model = $(this).val();
     });
     
-    // Prompt template
     $('#happy-image-prompt-template').on('input', function() {
         extSettings.promptTemplate = $(this).val();
     });
     
-    // Insertion settings
     $('#happy-image-insertion-type').on('change', function() {
         extSettings.insertionType = $(this).val();
     });
     
-    // Image saving settings
     $('#happy-image-save-enabled').on('change', function() {
         extSettings.saveImages.enabled = $(this).is(':checked');
         toggleSubSettings();
@@ -543,7 +607,6 @@ function attachSettingsEventListeners() {
         extSettings.saveImages.byCharacterName = $(this).is(':checked');
     });
     
-    // Debugging settings
     $('#happy-image-debug-enabled').on('change', function() {
         extSettings.debug.enabled = $(this).is(':checked');
     });
@@ -556,19 +619,15 @@ function attachSettingsEventListeners() {
         extSettings.debug.showToasts = $(this).is(':checked');
     });
     
-    // Save button
     $('#happy-image-save-settings').on('click', async function() {
-        // Save the settings to the extension settings object and localStorage
         await saveSettings();
         showToast('Settings saved successfully!', 'success');
     });
     
-    // Test API button
     $('#happy-image-test-api').on('click', async function() {
         await testApiConnections();
     });
     
-    // Reset to default button
     $('#happy-image-reset-to-default').on('click', function() {
         if (confirm('Are you sure you want to reset all settings to default values? This cannot be undone.')) {
             extSettings = deepClone(defaultSettings);
@@ -601,6 +660,7 @@ function toggleApiElements() {
     if (apiSource === 'preset') {
         $('#api2-preset-config').show();
         $('#api2-custom-config').hide();
+        loadPresetsIntoDropdown();
     } else if (apiSource === 'custom') {
         $('#api2-preset-config').hide();
         $('#api2-custom-config').show();
@@ -635,19 +695,19 @@ function logDebug(message, ...args) {
 
 function logInfo(message, ...args) {
     if (!extSettings.debug || !extSettings.debug.enabled) return;
-    if (['info', 'warn', 'error'].indexOf(extSettings.debug.logLevel) > 0) return; // Only log if level is info or more
+    if (['info', 'warn', 'error'].indexOf(extSettings.debug.logLevel) > 0) return;
     console.log(`[Happy-Image INFO]`, message, ...args);
 }
 
 function logWarn(message, ...args) {
     if (!extSettings.debug || !extSettings.debug.enabled) return;
-    if (['warn', 'error'].indexOf(extSettings.debug.logLevel) > 0) return; // Only log if level is warn or more
+    if (['warn', 'error'].indexOf(extSettings.debug.logLevel) > 0) return;
     console.warn(`[Happy-Image WARN]`, message, ...args);
 }
 
 function logError(message, ...args) {
     if (!extSettings.debug || !extSettings.debug.enabled) return;
-    if (extSettings.debug.logLevel !== 'error') return; // Only log if level is error
+    if (extSettings.debug.logLevel !== 'error') return;
     console.error(`[Happy-Image ERROR]`, message, ...args);
 }
 
@@ -655,7 +715,6 @@ function logError(message, ...args) {
 function showToast(message, type = 'info') {
     if (!extSettings.debug || !extSettings.debug.showToasts) return;
     
-    // Use the available toast notification system in tavern
     if (typeof toastr !== 'undefined') {
         switch (type) {
             case 'success':
@@ -671,7 +730,6 @@ function showToast(message, type = 'info') {
                 toastr.info(message, 'Happy-Image');
         }
     } else {
-        // Fallback to alert if toastr is not available
         alert(`Happy-Image: ${message}`);
     }
 }
@@ -690,12 +748,9 @@ function validateApiConfigComplete() {
         }
         return { valid: true };
     } else { // tavern
-        // Check if Tavern API is available
-        const hasTavernApi = typeof window.generate !== 'undefined' || 
-                            typeof window.generateRaw !== 'undefined' ||
-                            (typeof window.TavernHelper !== 'undefined' && window.TavernHelper.generate);
+        const hasTavernApi = checkTavernApiAvailable();
         if (!hasTavernApi) {
-            return { valid: false, message: '酒馆主API未配置，请先在酒馆中配置主API' };
+            return { valid: false, message: '酒馆主API不可用，请先在酒馆中配置主API' };
         }
         return { valid: true };
     }
@@ -711,10 +766,8 @@ async function testApiConnections() {
             return;
         }
 
-        // Show testing status
         showToast('正在发送测试请求...', 'info');
         
-        // Create a simple test prompt
         const testPrompt = `<IMAGE_PROMPT_TEMPLATE>
 这是一个API测试请求。请返回以下格式的JSON:
 
@@ -733,59 +786,16 @@ async function testApiConnections() {
 只返回JSON，不要包含其他内容。
 </IMAGE_PROMPT_TEMPLATE>`;
         
-        // Get custom API config if using custom source
-        let customApi = null;
-        let result;
-        
-        if (extSettings.api2Config.source === API_SOURCE.CUSTOM) {
-            customApi = extSettings.api2Config.customConfig;
-            logInfo('使用自定义API配置进行测试');
-            
-            result = await window.TavernHelper?.generate?.({
-                generate: testPrompt,
-                custom_api: {
-                    apiurl: customApi.apiUrl,
-                    key: customApi.apiKey,
-                    model: customApi.model,
-                    source: customApi.source
-                }
-            }) || await generateRaw({
-                user_input: testPrompt,
-                custom_api: {
-                    apiurl: customApi.apiUrl,
-                    key: customApi.apiKey,
-                    model: customApi.model,
-                    source: customApi.source
-                }
-            });
-        } else if (extSettings.api2Config.source === API_SOURCE.TAVERN) {
-            logInfo('使用Tavern当前API配置进行测试');
-            
-            result = await window.TavernHelper?.generate?.({
-                generate: testPrompt
-            }) || await generateRaw({
-                user_input: testPrompt
-            });
-        } else { // preset
-            logInfo('使用预设配置进行测试');
-            // For preset, we'll use Tavern's default for now
-            result = await window.TavernHelper?.generate?.({
-                generate: testPrompt
-            }) || await generateRaw({
-                user_input: testPrompt
-            });
-        }
+        const result = await callApiWithConfig(testPrompt);
         
         logInfo('API测试调用完成，原始结果:', result);
         
-        // Try to parse the result to verify it's valid
         const parsedResult = parseApiResult(result);
         
         if (!parsedResult || !parsedResult.tasks || parsedResult.tasks.length === 0) {
             throw new Error('API返回结果格式不正确');
         }
         
-        // If we got here, the test passed!
         showToast('✓ API配置生效！测试成功通过', 'success');
         logInfo('API连接测试成功');
         
@@ -793,6 +803,79 @@ async function testApiConnections() {
         logError('API测试错误:', e);
         showToast(`✗ API测试失败: ${e.message}`, 'error');
     }
+}
+
+// Call API with current configuration
+async function callApiWithConfig(prompt) {
+    let customApi = null;
+    
+    if (extSettings.api2Config.source === API_SOURCE.CUSTOM) {
+        customApi = extSettings.api2Config.customConfig;
+        logInfo('使用自定义API配置进行调用');
+    } else if (extSettings.api2Config.source === API_SOURCE.TAVERN) {
+        logInfo('使用Tavern当前API配置');
+        customApi = null;
+    } else if (extSettings.api2Config.source === API_SOURCE.PRESET) {
+        logInfo('使用预设配置');
+        customApi = null;
+    }
+    
+    // Try to get TavernHelper
+    const helper = typeof window.TavernHelper !== 'undefined' ? window.TavernHelper : null;
+    
+    let result;
+    
+    if (customApi) {
+        const customApiConfig = {
+            apiurl: customApi.apiUrl,
+            key: customApi.apiKey,
+            model: customApi.model,
+            source: customApi.source || 'openai'
+        };
+        
+        if (helper && helper.generateRaw) {
+            logInfo('使用 TavernHelper.generateRaw 进行调用');
+            result = await helper.generateRaw({
+                user_input: prompt,
+                custom_api: customApiConfig,
+                should_silence: true
+            });
+        } else if (helper && helper.generate) {
+            logInfo('使用 TavernHelper.generate 进行调用');
+            result = await helper.generate({
+                user_input: prompt,
+                custom_api: customApiConfig,
+                should_silence: true
+            });
+        } else {
+            logInfo('使用全局 generateRaw 进行调用');
+            result = await generateRaw({
+                user_input: prompt,
+                custom_api: customApiConfig
+            });
+        }
+    } else {
+        if (helper && helper.generateRaw) {
+            logInfo('使用 TavernHelper.generateRaw (默认配置)');
+            result = await helper.generateRaw({
+                user_input: prompt,
+                should_silence: true
+            });
+        } else if (helper && helper.generate) {
+            logInfo('使用 TavernHelper.generate (默认配置)');
+            result = await helper.generate({
+                user_input: prompt,
+                should_silence: true
+            });
+        } else {
+            logInfo('使用全局 generateRaw (默认配置)');
+            result = await generateRaw({
+                user_input: prompt
+            });
+        }
+    }
+    
+    return result;
 }
 
 // Check if we need to validate before generating prompts
@@ -807,7 +890,6 @@ function validateBeforeGeneration() {
 
 // Register event listeners for tavern events
 function registerEventListeners() {
-    // Listen to message events to trigger image generation based on settings
     eventSource.on(event_types.MESSAGE_RECEIVED, async function() {
         logInfo('收到来自Tavern的消息事件.');
         if (!extSettings.enabled) {
@@ -820,12 +902,10 @@ function registerEventListeners() {
         
         if (triggerMode === TASK_TRIGGER.AUTO) {
             logInfo('自动模式启用，开始处理最后一条消息.');
-            // Automatically trigger image generation on each message
             await handleAutoImageGeneration();
         } else {
             logInfo(`当前触发模式为 ${triggerMode}，跳过自动处理.`);
         }
-        // For keyword-triggered generation, we'll check in the message itself
     });
     
     eventSource.on(event_types.CHAT_CHANGED, async function() {
@@ -835,7 +915,6 @@ function registerEventListeners() {
         await loadSettings();
     });
     
-    // For message updates (e.g., when model responses stream in)
     eventSource.on(event_types.MESSAGE_UPDATED, async function(mesId) {
         logInfo(`收到消息更新事件，消息ID: ${mesId}, 检查是否包含关键词.`);
         logInfo(`插件状态: ${extSettings.enabled}, 触发模式: ${extSettings.taskTrigger}`);
@@ -857,14 +936,12 @@ async function handleAutoImageGeneration() {
             return;
         }
         
-        // Get the last message
         const messageIndex = context.chat.length - 1;
         const message = context.chat[messageIndex];
         if (!message || !message.mes) {
             return;
         }
         
-        // Generate images for this message
         await processMessageForImages(message, messageIndex);
     } catch (e) {
         logError('Auto image generation error:', e);
@@ -885,14 +962,12 @@ async function handleKeywordBasedImageGeneration(mesId) {
             return;
         }
         
-        // Check if message contains any of the trigger keywords
         const messageContent = message.mes.toLowerCase();
         const containsKeyword = extSettings.keywordList.some(keyword => 
             messageContent.includes(keyword.toLowerCase())
         );
         
         if (containsKeyword) {
-            // Generate images for this message
             await processMessageForImages(message, mesId);
         }
     } catch (e) {
@@ -903,33 +978,28 @@ async function handleKeywordBasedImageGeneration(mesId) {
 
 // Process a message to generate images based on its content
 async function processMessageForImages(message, messageIndex) {
-    // Check if a task is already running
     if (isTaskRunning) {
         logInfo('已有任务正在执行，跳过本次请求');
         return;
     }
     
-    // Check if we've already processed this message
     if (messageIndex !== undefined && messageIndex === lastProcessedMessageId) {
         logInfo(`消息 ${messageIndex} 已处理过，跳过`);
         return;
     }
     
-    // Acquire lock
     isTaskRunning = true;
     
     try {
         logInfo('开始处理消息以生成图像', message);
         showToast('开始处理图像生成...', 'info');
         
-        // First, generate prompts using API2
         const promptTasks = await generateImagePrompts(message.mes);
         
         if (!promptTasks || promptTasks.length === 0) {
             logInfo('消息未生成图像提示词:');
             logInfo('消息内容: ' + message.mes.substring(0, 100) + '...');
             showToast('未找到需要生成的图像提示词', 'warning');
-            // Update last processed message ID even if no prompts were generated
             if (messageIndex !== undefined) {
                 lastProcessedMessageId = messageIndex;
             }
@@ -939,7 +1009,6 @@ async function processMessageForImages(message, messageIndex) {
         logInfo('生成的图像提示词任务数量:', promptTasks.length);
         logInfo('生成的图像提示词任务详情:', promptTasks);
         
-        // Then, for each prompt, generate an actual image using API3 (Tavern's SD)
         for (let i = 0; i < promptTasks.length; i++) {
             const task = promptTasks[i];
             logInfo(`处理提示词任务 ${i + 1}/${promptTasks.length}: ${task.english_prompt.substring(0, 50)}...`);
@@ -948,7 +1017,6 @@ async function processMessageForImages(message, messageIndex) {
         }
         showToast(`完成${promptTasks.length}个图像的生成请求`, 'success');
         
-        // Update last processed message ID
         if (messageIndex !== undefined) {
             lastProcessedMessageId = messageIndex;
         }
@@ -956,7 +1024,6 @@ async function processMessageForImages(message, messageIndex) {
         logError('处理消息生成图像时出错:', e);
         showToast(`处理图像生成时出错: ${e.message}`, 'error');
     } finally {
-        // Release lock
         isTaskRunning = false;
     }
 }
@@ -964,7 +1031,6 @@ async function processMessageForImages(message, messageIndex) {
 // Generate image prompts using API2 based on message content
 async function generateImagePrompts(messageContent) {
     try {
-        // Validate configuration before proceeding
         if (!validateBeforeGeneration()) {
             return [];
         }
@@ -972,70 +1038,19 @@ async function generateImagePrompts(messageContent) {
         logInfo('开始使用API2从内容生成提示词:', messageContent.substring(0, 100) + '...');
         showToast('正在生成图像提示词...', 'info');
         
-        // Get custom API config if using custom source
-        let customApi = null;
-        logInfo('API2 配置来源:', extSettings.api2Config.source);
-        
-        if (extSettings.api2Config.source === API_SOURCE.CUSTOM) {
-            customApi = extSettings.api2Config.customConfig;
-            logInfo('使用自定义API配置:', { model: customApi.model, apiUrl: customApi.apiUrl });
-        } else if (extSettings.api2Config.source === API_SOURCE.TAVERN) {
-            logInfo('使用Tavern当前API配置');
-            // If using tavern API, pass null so tavern uses its default settings
-            customApi = null;
-        } else if (extSettings.api2Config.source === API_SOURCE.PRESET) {
-            // Using preset - implementation depends on how Tavern handles presets
-            // For now using null and letting tavern decide
-            customApi = null;
-            logInfo('使用预设配置');
-        }
-        
-        // Format the prompt template with the message content
         const promptTemplate = extSettings.promptTemplate;
         const prompt = promptTemplate.replace('{{message_content}}', messageContent);
         logDebug('完整API调用提示词:', prompt);
         
-        // Use TavernHelper to call the API with a custom config if needed
-        let result;
         logInfo('正在调用API生成提示词...');
         showToast('调用AI生成提示词...', 'info');
         
-        if (customApi) {
-            // Use custom API
-            logInfo('使用自定义API配置进行调用');
-            result = await window.TavernHelper?.generate?.({
-                generate: prompt,
-                custom_api: {
-                    apiurl: customApi.apiUrl,
-                    key: customApi.apiKey,
-                    model: customApi.model,
-                    source: customApi.source
-                }
-            }) || await generateRaw({
-                user_input: prompt,
-                custom_api: {
-                    apiurl: customApi.apiUrl,
-                    key: customApi.apiKey,
-                    model: customApi.model,
-                    source: customApi.source
-                }
-            });
-        } else {
-            // Use tavern's configured API
-            logInfo('使用Tavern默认API进行调用');
-            result = await window.TavernHelper?.generate?.({
-                generate: prompt
-            }) || await generateRaw({
-                user_input: prompt
-            });
-        }
+        const result = await callApiWithConfig(prompt);
         
         logInfo('API调用完成，收到原始结果.');
         logInfo('原始API结果:', result);
         showToast('提示词生成完成，正在解析结果...', 'info');
         
-        // Parse the result to extract English and Chinese prompts
-        // The result should be in the format specified in the prompt template
         const parsedResult = parseApiResult(result);
         logInfo('解析后的API结果:', parsedResult);
         return parsedResult.tasks || [];
@@ -1050,34 +1065,81 @@ async function generateImagePrompts(messageContent) {
 function parseApiResult(apiResult) {
     if (!apiResult) return { tasks: [] };
     
-    // Try to find and parse JSON from the response
     try {
-        // First, try as is if it's already an object
         if (typeof apiResult === 'object' && apiResult !== null) {
-            return apiResult;
-        }
-        
-        // If API result is string, look for JSON structure within
-        let jsonString = apiResult;
-        
-        // Look for JSON within triple backticks and code type
-        const jsonMatch = apiResult.match(/```json\s*([\s\S]*?)\s*```/);
-        if (jsonMatch) {
-            jsonString = jsonMatch[1].trim();
-        } else {
-            // Just look for JSON structure without triple backticks
-            const objMatch = apiResult.match(/\{[\s\S]*\}/);
-            if (objMatch) {
-                jsonString = objMatch[0].trim();
+            if (apiResult.tasks) {
+                return apiResult;
+            }
+            // Maybe the result is already the tasks array
+            if (Array.isArray(apiResult)) {
+                return { tasks: apiResult };
             }
         }
         
-        if (!jsonString) {
-            throw new Error('No JSON found in API response');
+        let jsonString = String(apiResult);
+        
+        // Try multiple parsing strategies
+        let parsed = null;
+        
+        // Strategy 1: Try to find JSON in triple backticks
+        const jsonMatch = jsonString.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch) {
+            try {
+                parsed = JSON.parse(jsonMatch[1].trim());
+            } catch (e) {
+                logDebug('Strategy 1 failed:', e);
+            }
         }
         
-        const parsed = JSON.parse(jsonString);
-        return parsed;
+        // Strategy 2: Try to find just code blocks
+        if (!parsed) {
+            const codeMatch = jsonString.match(/```\s*([\s\S]*?)\s*```/);
+            if (codeMatch) {
+                try {
+                    parsed = JSON.parse(codeMatch[1].trim());
+                } catch (e) {
+                    logDebug('Strategy 2 failed:', e);
+                }
+            }
+        }
+        
+        // Strategy 3: Try to find anything that looks like JSON
+        if (!parsed) {
+            const objMatch = jsonString.match(/\{[\s\S]*\}/);
+            if (objMatch) {
+                try {
+                    parsed = JSON.parse(objMatch[0].trim());
+                } catch (e) {
+                    logDebug('Strategy 3 failed:', e);
+                }
+            }
+        }
+        
+        // Strategy 4: Try to clean the string and parse
+        if (!parsed) {
+            try {
+                const cleaned = jsonString.trim();
+                if (cleaned.startsWith('{') || cleaned.startsWith('[')) {
+                    parsed = JSON.parse(cleaned);
+                }
+            } catch (e) {
+                logDebug('Strategy 4 failed:', e);
+            }
+        }
+        
+        if (!parsed) {
+            throw new Error('无法从API返回结果中解析JSON');
+        }
+        
+        // Normalize the result
+        if (Array.isArray(parsed)) {
+            return { tasks: parsed };
+        } else if (parsed.tasks && Array.isArray(parsed.tasks)) {
+            return parsed;
+        } else {
+            // If it's a single task object, wrap it
+            return { tasks: [parsed] };
+        }
     } catch (e) {
         logError(`Error parsing API result: ${e.message}`);
         logDebug(`API result content was:`, apiResult);
@@ -1098,11 +1160,9 @@ async function generateImageFromPrompt(task) {
         
         logDebug(`Generating image: prompt="${prompt}", pos="${task.position}"`);
         
-        // Call tavern's built-in image generation via slash command system
-        // This assumes that Tavern has working SD integration
         try {
             const result = await SlashCommandParser.commands['sd']?.callback?.(
-                {}, // options object
+                {},
                 prompt
             );
             
@@ -1112,7 +1172,6 @@ async function generateImageFromPrompt(task) {
             
             logDebug(`Image generated URL: ${result}`);
             
-            // Format to include both image URL and Chinese commentary depending on user options 
             const formattedResult = {
                 imageUrl: result,
                 englishPrompt: prompt,
@@ -1120,10 +1179,8 @@ async function generateImageFromPrompt(task) {
                 position: task.position
             };
             
-            // Insert image into message based on position preference
             await insertImageIntoMessage(formattedResult);
             
-            // If image saving is enabled, try to save it
             if (extSettings.saveImages.enabled) {
                 await saveImageToDisk(result, task);
             }
@@ -1157,17 +1214,14 @@ async function insertImageIntoMessage(imageData) {
             return;
         }
         
-        // Get the last message (where the image should be inserted)
         const message = context.chat[context.chat.length - 1];
         if (!message) {
             logError('No message to insert image into');
             return;
         }
         
-        // Depending on insertion type, handle differently
         switch (extSettings.insertionType) {
             case INSERT_TYPE.BEGINNING:
-                // Add image at beginning of last message
                 if (imageData.chineseCommentary) {
                     message.mes = `<br><img src="${imageUrl}" alt="${imageData.chineseCommentary}"><br><em>${imageData.chineseCommentary}</em>` + message.mes;
                 } else {
@@ -1176,7 +1230,6 @@ async function insertImageIntoMessage(imageData) {
                 break;
                 
             case INSERT_TYPE.NEW_MESSAGE:
-                // Create a new message with the image
                 const newMes = {
                     name: message.name,
                     is_user: false,
@@ -1189,13 +1242,11 @@ async function insertImageIntoMessage(imageData) {
                     }
                 };
                 
-                // Add to chat array
                 context.chat.push(newMes);
                 break;
                 
             case INSERT_TYPE.END_OF_MESSAGE:
             default:
-                // Add image at end of last message
                 if (imageData.chineseCommentary) {
                     message.mes = message.mes + `<br><img src="${imageUrl}" alt="${imageData.chineseCommentary}"><br><em>${imageData.chineseCommentary}</em>`;
                 } else {
@@ -1203,7 +1254,6 @@ async function insertImageIntoMessage(imageData) {
                 }
         }
         
-        // Add to message's extra field for tavern's image system
         if (!message.extra) {
             message.extra = {};
         }
@@ -1216,17 +1266,13 @@ async function insertImageIntoMessage(imageData) {
         message.extra.image = imageUrl;
         message.extra.title = imageData.chineseCommentary;
         
-        // Save the chat
         await context.saveChat();
         
-        // Update the message display
         const $mesDiv = $(`.mes[mesid="${context.chat.length - 1}"]`);
         if ($mesDiv.length) {
-            // Use Tavern's built-in function to update the message display
             appendMediaToMessage(message, $mesDiv);
         }
         
-        // Trigger message update event
         await eventSource.emit(event_types.MESSAGE_UPDATED, context.chat.length - 1);
         
         logDebug(`Image inserted: ${imageUrl} at position "${position}"`);
@@ -1239,17 +1285,10 @@ async function insertImageIntoMessage(imageData) {
 // Save image to disk if possible
 async function saveImageToDisk(imageUrl, promptTask) {
     try {
-        // Check if we can access to save to file system
         if (!extSettings.saveImages.enabled) return;
-        
-        // Skip if we can't save due to browser restrictions
-        // (Browsers typically don't allow direct file system writes)
         logDebug('Image saving not implemented due to browser restrictions');
-        
-        // Optional: In the future, we could implement via backend endpoint if available
     } catch (e) {
         logError('Error saving image to disk:', e);
-        // Don't show error toasts for this since it's likely a browser security limitation
     }
 }
 
@@ -1269,8 +1308,6 @@ function deepClone(obj) {
     }
 }
 
-
-// Expose utility functions globally if needed
 window.HappyImage = {
     processMessageForImages,
     generateImagePrompts,
