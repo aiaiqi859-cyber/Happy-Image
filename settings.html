@@ -1,131 +1,131 @@
 <!-- Legacy file for potential use with Tavern's older extension system, though the settings are implemented directly in index.js -->
 <div id="happy-image-settings-panel" style="display: none;">
-    <h3>Happy-Image Settings</h3>
+    <h3>Happy-Image 插件设置</h3>
     
     <div class="happy-image-settings-section">
-        <h4>General Settings</h4>
+        <h4>常规设置</h4>
         
         <div class="flex-container flexGap5">
-            <label for="happy-image-enabled">Enable Plugin:</label>
+            <label for="happy-image-enabled">启用插件:</label>
             <input type="checkbox" id="happy-image-enabled" class="checkbox">
         </div>
         
         <div class="flex-container flexGap5">
-            <label for="happy-image-task-trigger">Task Trigger Mode:</label>
+            <label for="happy-image-task-trigger">任务触发方式:</label>
             <select id="happy-image-task-trigger" class="select">
-                <option value="manual">Manual (Floating Button)</option>
-                <option value="keyword">Keyword Detection</option>
-                <option value="auto">Auto (All Messages)</option>
+                <option value="manual">手动 (浮动按钮)</option>
+                <option value="keyword">关键词检测</option>
+                <option value="auto">自动 (所有消息)</option>
             </select>
         </div>
         
         <div id="keyword-settings" class="sub-settings">
             <div class="flex-container flexGap5">
-                <label for="happy-image-keywords">Keywords (comma separated):</label>
-                <input type="text" id="happy-image-keywords" class="text_pole" placeholder="image, pic, art, drawing">
+                <label for="happy-image-keywords">关键词 (逗号分隔):</label>
+                <input type="text" id="happy-image-keywords" class="text_pole" placeholder="图片, 图像, 生图, 插图">
             </div>
         </div>
     </div>
     
     <div class="happy-image-settings-section">
-        <h4>API2 Configuration (Prompt Generation)</h4>
+        <h4>API2 配置 (提示词生成)</h4>
         
         <div class="flex-container flexGap5">
-            <label for="happy-image-api2-source">API Source:</label>
+            <label for="happy-image-api2-source">API 源:</label>
             <select id="happy-image-api2-source" class="select">
-                <option value="tavern">Use Main Tavern API</option>
-                <option value="preset">Use Connection Preset</option>
-                <option value="custom">Custom Configuration</option>
+                <option value="tavern">使用当前 Tavern API</option>
+                <option value="preset">使用连接预设</option>
+                <option value="custom">自定义配置</option>
             </select>
         </div>
         
         <div id="api2-preset-config" class="sub-settings">
             <div class="flex-container flexGap5">
-                <label for="happy-image-api2-preset">Select Preset:</label>
+                <label for="happy-image-api2-preset">选择预设:</label>
                 <select id="happy-image-api2-preset" class="select">
-                    <option value="">Select a preset...</option>
+                    <option value="">选择一个预设...</option>
                 </select>
             </div>
         </div>
         
         <div id="api2-custom-config" class="sub-settings">
             <div class="flex-container flexGap5">
-                <label for="happy-image-api2-api-url">API URL:</label>
+                <label for="happy-image-api2-api-url">API 地址:</label>
                 <input type="text" id="happy-image-api2-api-url" class="text_pole" placeholder="https://api.openai.com/v1/chat/completions">
             </div>
             
             <div class="flex-container flexGap5">
-                <label for="happy-image-api2-api-key">API Key:</label>
-                <input type="password" id="happy-image-api2-api-key" class="text_pole" placeholder="Enter your API key">
+                <label for="happy-image-api2-api-key">API 密钥:</label>
+                <input type="password" id="happy-image-api2-api-key" class="text_pole" placeholder="输入您的 API 密钥">
             </div>
             
             <div class="flex-container flexGap5">
-                <label for="happy-image-api2-model">Model:</label>
+                <label for="happy-image-api2-model">模型:</label>
                 <input type="text" id="happy-image-api2-model" class="text_pole" placeholder="gpt-4o">
             </div>
         </div>
     </div>
     
     <div class="happy-image-settings-section">
-        <h4>Prompt Template (For Prompt Generation)</h4>
+        <h4>提示词模板 (用于提示词生成)</h4>
         
         <div class="flex-container flexGap5">
-            <label for="happy-image-prompt-template">Prompt Template:</label>
+            <label for="happy-image-prompt-template">提示词模板:</label>
             <textarea id="happy-image-prompt-template" class="text_pole textarea_compact" rows="10"></textarea>
         </div>
     </div>
     
     <div class="happy-image-settings-section">
-        <h4>Insertion Settings</h4>
+        <h4>插入设置</h4>
         
         <div class="flex-container flexGap5">
-            <label for="happy-image-insertion-type">Insertion Type:</label>
+            <label for="happy-image-insertion-type">插入类型:</label>
             <select id="happy-image-insertion-type" class="select">
-                <option value="end_of_message">End of Message</option>
-                <option value="replace">Replace Trigger Text</option>
-                <option value="new_message">New Message</option>
-                <option value="beginning">Beginning of Message</option>
+                <option value="end_of_message">消息末尾</option>
+                <option value="replace">替换触发文本</option>
+                <option value="new_message">新消息</option>
+                <option value="beginning">消息开头</option>
             </select>
         </div>
     </div>
     
     <div class="happy-image-settings-section">
-        <h4>Image Saving Settings</h4>
+        <h4>图像保存设置</h4>
         
         <div class="flex-container flexGap5">
-            <label for="happy-image-save-enabled">Enable Saving:</label>
+            <label for="happy-image-save-enabled">启用保存:</label>
             <input type="checkbox" id="happy-image-save-enabled" class="checkbox">
         </div>
         
         <div id="save-path-settings" class="sub-settings">
             <div class="flex-container flexGap5">
-                <label for="happy-image-save-path">Save Path:</label>
+                <label for="happy-image-save-path">保存路径:</label>
                 <input type="text" id="happy-image-save-path" class="text_pole" placeholder="./user_images">
             </div>
         </div>
     </div>
     
     <div class="happy-image-settings-section">
-        <h4>Debug & Logging</h4>
+        <h4>调试与日志</h4>
         
         <div class="flex-container flexGap5">
-            <label for="happy-image-debug-enabled">Enable Debug:</label>
+            <label for="happy-image-debug-enabled">启用调试:</label>
             <input type="checkbox" id="happy-image-debug-enabled" class="checkbox">
         </div>
         
         <div class="flex-container flexGap5">
-            <label for="happy-image-debug-level">Log Level:</label>
+            <label for="happy-image-debug-level">日志等级:</label>
             <select id="happy-image-debug-level" class="select">
-                <option value="debug">Debug</option>
-                <option value="info" selected>Info</option>
-                <option value="warn">Warn</option>
-                <option value="error">Error</option>
+                <option value="debug">调试</option>
+                <option value="info" selected>信息</option>
+                <option value="warn">警告</option>
+                <option value="error">错误</option>
             </select>
         </div>
     </div>
     
     <div class="flex-container flexGap5">
-        <button id="happy-image-save-settings" class="menu_button">Save Settings</button>
-        <button id="happy-image-test-api" class="menu_button">Test APIs</button>
+        <button id="happy-image-save-settings" class="menu_button">保存设置</button>
+        <button id="happy-image-test-api" class="menu_button">测试APIs</button>
     </div>
 </div>
